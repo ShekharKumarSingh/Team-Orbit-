@@ -299,7 +299,7 @@ function CreateTaskDialog({ projectId, defaultStatus }: { projectId: number, def
 
   const onSubmit = (values: z.infer<typeof taskSchema>) => {
     createTask.mutate(
-      { data: { ...values, projectId: projectId as any } as any },
+      { id: projectId, data: { title: values.title, priority: values.priority, status: values.status } },
       {
         onSuccess: () => {
           qc.invalidateQueries({ queryKey: getListProjectTasksQueryKey(projectId) });
