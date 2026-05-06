@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { clerkClient } from "@clerk/express";
 import { db, projectsTable, projectMembersTable, tasksTable, usersTable, activityTable } from "@workspace/db";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, getClerkUserId } from "../lib/auth";
@@ -257,11 +258,32 @@ router.post("/projects/:id/members", requireAuth, async (req, res): Promise<void
     return;
   }
 
-  // Find user by email
-  const [targetUser] = await db.select().from(usersTable).where(eq(usersTable.email, parsed.data.email));
+  // Find user by email in local DB first, then fall back to Clerk
+  let [targetUser] = await db.select().from(usersTable).where(eq(usersTable.email, parsed.data.email));
+
   if (!targetUser) {
-    res.status(400).json({ error: "User with that email not found. They must sign up first." });
-    return;
+    // Search Clerk for a user with this email
+    try {
+      const clerkUsers = await clerkClient.users.getUserList({ emailAddress: [parsed.data.email] });
+      const clerkUser = clerkUsers.data[0];
+      if (!clerkUser) {
+        res.status(400).json({ error: "No account found with that email address." });
+        return;
+      }
+      // Create local user record
+      const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || clerkUser.username || "User";
+      const email = clerkUser.emailAddresses[0]?.emailAddress ?? parsed.data.email;
+      const avatarUrl = clerkUser.imageUrl ?? null;
+      [targetUser] = await db.insert(usersTable).values({
+        clerkUserId: clerkUser.id,
+        name,
+        email,
+        avatarUrl,
+      }).returning();
+    } catch {
+      res.status(400).json({ error: "Could not look up that email address." });
+      return;
+    }
   }
 
   // Check not already a member
