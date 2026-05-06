@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { getAuth, clerkClient } from "@clerk/express";
-import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, usersTable, projectMembersTable, projectInvitesTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 import { requireAuth, getClerkUserId } from "../lib/auth";
 import { GetMeResponse, UpdateMeBody } from "@workspace/api-zod";
 
@@ -25,6 +25,25 @@ router.get("/me", requireAuth, async (req, res): Promise<void> => {
         email,
         avatarUrl,
       }).returning();
+
+      // Auto-accept any pending invites for this email
+      if (email) {
+        const pendingInvites = await db.select().from(projectInvitesTable)
+          .where(eq(projectInvitesTable.email, email.toLowerCase()));
+        for (const invite of pendingInvites) {
+          // Check not already a member (race condition guard)
+          const [existing] = await db.select().from(projectMembersTable)
+            .where(and(eq(projectMembersTable.projectId, invite.projectId), eq(projectMembersTable.clerkUserId, clerkUserId)));
+          if (!existing) {
+            await db.insert(projectMembersTable).values({
+              projectId: invite.projectId,
+              clerkUserId,
+              role: invite.role,
+            });
+          }
+          await db.delete(projectInvitesTable).where(eq(projectInvitesTable.id, invite.id));
+        }
+      }
     } catch (err) {
       res.status(500).json({ error: "Failed to create user profile" });
       return;

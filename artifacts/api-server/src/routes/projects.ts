@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { clerkClient } from "@clerk/express";
-import { db, projectsTable, projectMembersTable, tasksTable, usersTable, activityTable } from "@workspace/db";
+import { db, projectsTable, projectMembersTable, projectInvitesTable, tasksTable, usersTable, activityTable } from "@workspace/db";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, getClerkUserId } from "../lib/auth";
 import {
@@ -228,10 +228,27 @@ router.get("/projects/:id/members", requireAuth, async (req, res): Promise<void>
       avatarUrl: user?.avatarUrl ?? null,
       role: m.role,
       joinedAt: m.joinedAt,
+      pending: false,
     };
   }));
 
-  res.json(enriched);
+  // Also include pending invites
+  const invites = await db.select().from(projectInvitesTable)
+    .where(eq(projectInvitesTable.projectId, params.data.id));
+
+  const pendingMembers = invites.map((inv) => ({
+    id: inv.id * -1, // negative ID to distinguish from real members
+    projectId: inv.projectId,
+    clerkUserId: null,
+    name: inv.email.split("@")[0],
+    email: inv.email,
+    avatarUrl: null,
+    role: inv.role,
+    joinedAt: inv.createdAt,
+    pending: true,
+  }));
+
+  res.json([...enriched, ...pendingMembers]);
 });
 
 // Add member
@@ -258,65 +275,122 @@ router.post("/projects/:id/members", requireAuth, async (req, res): Promise<void
     return;
   }
 
-  // Find user by email in local DB first, then fall back to Clerk
-  let [targetUser] = await db.select().from(usersTable).where(eq(usersTable.email, parsed.data.email));
+  const email = parsed.data.email.toLowerCase().trim();
 
-  if (!targetUser) {
-    // Search Clerk for a user with this email
-    try {
-      const clerkUsers = await clerkClient.users.getUserList({ emailAddress: [parsed.data.email] });
-      const clerkUser = clerkUsers.data[0];
-      if (!clerkUser) {
-        res.status(400).json({ error: "No account found with that email address." });
-        return;
-      }
-      // Create local user record
-      const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || clerkUser.username || "User";
-      const email = clerkUser.emailAddresses[0]?.emailAddress ?? parsed.data.email;
-      const avatarUrl = clerkUser.imageUrl ?? null;
-      [targetUser] = await db.insert(usersTable).values({
-        clerkUserId: clerkUser.id,
-        name,
-        email,
-        avatarUrl,
-      }).returning();
-    } catch {
-      res.status(400).json({ error: "Could not look up that email address." });
-      return;
-    }
-  }
-
-  // Check not already a member
-  const [existing] = await db.select().from(projectMembersTable)
-    .where(and(eq(projectMembersTable.projectId, params.data.id), eq(projectMembersTable.clerkUserId, targetUser.clerkUserId)));
-  if (existing) {
-    res.status(400).json({ error: "User is already a member" });
+  // Check if already a pending invite
+  const [existingInvite] = await db.select().from(projectInvitesTable)
+    .where(and(eq(projectInvitesTable.projectId, params.data.id), eq(projectInvitesTable.email, email)));
+  if (existingInvite) {
+    res.status(400).json({ error: "An invite is already pending for that email." });
     return;
   }
 
-  const [member] = await db.insert(projectMembersTable).values({
+  // Find user by email in local DB first, then try Clerk
+  const [targetUser] = await db.select().from(usersTable).where(eq(usersTable.email, email));
+
+  if (targetUser) {
+    // User exists locally — check not already a member
+    const [existing] = await db.select().from(projectMembersTable)
+      .where(and(eq(projectMembersTable.projectId, params.data.id), eq(projectMembersTable.clerkUserId, targetUser.clerkUserId)));
+    if (existing) {
+      res.status(400).json({ error: "User is already a member." });
+      return;
+    }
+
+    const [member] = await db.insert(projectMembersTable).values({
+      projectId: params.data.id,
+      clerkUserId: targetUser.clerkUserId,
+      role: parsed.data.role,
+    }).returning();
+
+    await db.insert(activityTable).values({
+      type: "member_added",
+      projectId: params.data.id,
+      actorClerkUserId: clerkUserId,
+      description: `added ${targetUser.name} to the project`,
+    });
+
+    res.status(201).json({
+      id: member.id,
+      projectId: member.projectId,
+      clerkUserId: member.clerkUserId,
+      name: targetUser.name,
+      email: targetUser.email,
+      avatarUrl: targetUser.avatarUrl,
+      role: member.role,
+      joinedAt: member.joinedAt,
+      pending: false,
+    });
+    return;
+  }
+
+  // User not found locally — try Clerk
+  let foundInClerk = false;
+  try {
+    const clerkUsers = await clerkClient.users.getUserList({ emailAddress: [email] });
+    const clerkUser = clerkUsers.data[0];
+    if (clerkUser) {
+      // Create local user record and add directly
+      const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || clerkUser.username || "User";
+      const userEmail = clerkUser.emailAddresses[0]?.emailAddress ?? email;
+      const avatarUrl = clerkUser.imageUrl ?? null;
+      const [newUser] = await db.insert(usersTable).values({
+        clerkUserId: clerkUser.id,
+        name,
+        email: userEmail,
+        avatarUrl,
+      }).returning();
+
+      const [member] = await db.insert(projectMembersTable).values({
+        projectId: params.data.id,
+        clerkUserId: newUser.clerkUserId,
+        role: parsed.data.role,
+      }).returning();
+
+      await db.insert(activityTable).values({
+        type: "member_added",
+        projectId: params.data.id,
+        actorClerkUserId: clerkUserId,
+        description: `added ${newUser.name} to the project`,
+      });
+
+      res.status(201).json({
+        id: member.id,
+        projectId: member.projectId,
+        clerkUserId: member.clerkUserId,
+        name: newUser.name,
+        email: newUser.email,
+        avatarUrl: newUser.avatarUrl,
+        role: member.role,
+        joinedAt: member.joinedAt,
+        pending: false,
+      });
+      foundInClerk = true;
+    }
+  } catch {
+    // Clerk lookup failed — fall through to pending invite
+  }
+
+  if (foundInClerk) return;
+
+  // Not in Clerk either — create a pending invite so they auto-join when they sign up
+  const [invite] = await db.insert(projectInvitesTable).values({
     projectId: params.data.id,
-    clerkUserId: targetUser.clerkUserId,
+    email,
     role: parsed.data.role,
+    invitedByClerkUserId: clerkUserId,
   }).returning();
 
-  // Log activity
-  await db.insert(activityTable).values({
-    type: "member_added",
-    projectId: params.data.id,
-    actorClerkUserId: clerkUserId,
-    description: `added ${targetUser.name} to the project`,
-  });
-
   res.status(201).json({
-    id: member.id,
-    projectId: member.projectId,
-    clerkUserId: member.clerkUserId,
-    name: targetUser.name,
-    email: targetUser.email,
-    avatarUrl: targetUser.avatarUrl,
-    role: member.role,
-    joinedAt: member.joinedAt,
+    id: invite.id * -1,
+    projectId: invite.projectId,
+    clerkUserId: null,
+    name: email.split("@")[0],
+    email: invite.email,
+    avatarUrl: null,
+    role: invite.role,
+    joinedAt: invite.createdAt,
+    pending: true,
   });
 });
 

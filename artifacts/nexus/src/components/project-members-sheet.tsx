@@ -19,7 +19,7 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, Shield, User, Trash2 } from "lucide-react";
+import { UserPlus, Shield, User, Trash2, Clock } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const addMemberSchema = z.object({
@@ -145,46 +145,67 @@ export function ProjectMembersSheet({
                   <div className="space-y-2"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-24" /></div>
                 </div>
               ))
-            ) : members?.map(member => (
-              <div key={member.id} className="flex items-center justify-between group">
-                <div className="flex items-center gap-3">
-                  <Avatar>
-                    <AvatarImage src={member.avatarUrl || ""} />
-                    <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-medium leading-none">{member.name}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{member.email}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center text-xs text-muted-foreground">
-                    {member.role === 'admin' ? <Shield className="w-3 h-3 mr-1" /> : <User className="w-3 h-3 mr-1" />}
-                    <span className="capitalize">{member.role}</span>
+            ) : members?.map(member => {
+              const isPending = (member as any).pending === true;
+              return (
+                <div key={member.id} className="flex items-center justify-between group">
+                  <div className="flex items-center gap-3">
+                    <Avatar className={isPending ? "opacity-50" : ""}>
+                      <AvatarImage src={member.avatarUrl || ""} />
+                      <AvatarFallback>{member.name.charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium leading-none">{member.name}</p>
+                        {isPending && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                            <Clock className="w-2.5 h-2.5" /> Invite pending
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{member.email}</p>
+                    </div>
                   </div>
                   
-                  {isAdmin && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="sr-only">Open menu</span>
-                          <Shield className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleRoleChange(member.id, member.role === 'admin' ? 'member' : 'admin')}>
-                          Make {member.role === 'admin' ? 'Member' : 'Admin'}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={() => handleRemove(member.id)}>
-                          <Trash2 className="w-4 h-4 mr-2" /> Remove
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center text-xs text-muted-foreground">
+                      {member.role === 'admin' ? <Shield className="w-3 h-3 mr-1" /> : <User className="w-3 h-3 mr-1" />}
+                      <span className="capitalize">{member.role}</span>
+                    </div>
+                    
+                    {isAdmin && !isPending && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <span className="sr-only">Open menu</span>
+                            <Shield className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleRoleChange(member.id, member.role === 'admin' ? 'member' : 'admin')}>
+                            Make {member.role === 'admin' ? 'Member' : 'Admin'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onClick={() => handleRemove(member.id)}>
+                            <Trash2 className="w-4 h-4 mr-2" /> Remove
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    {isAdmin && isPending && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                        onClick={() => handleRemove(Math.abs(member.id))}
+                        title="Cancel invite"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </SheetContent>

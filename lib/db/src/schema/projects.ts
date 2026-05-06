@@ -21,10 +21,22 @@ export const projectMembersTable = pgTable("project_members", {
   joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const projectInvitesTable = pgTable("project_invites", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projectsTable.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  role: text("role", { enum: ["admin", "member"] }).notNull().default("member"),
+  invitedByClerkUserId: text("invited_by_clerk_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const insertProjectSchema = createInsertSchema(projectsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertProjectMemberSchema = createInsertSchema(projectMembersTable).omit({ id: true, joinedAt: true });
+export const insertProjectInviteSchema = createInsertSchema(projectInvitesTable).omit({ id: true, createdAt: true });
 
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type InsertProjectMember = z.infer<typeof insertProjectMemberSchema>;
+export type InsertProjectInvite = z.infer<typeof insertProjectInviteSchema>;
 export type Project = typeof projectsTable.$inferSelect;
 export type ProjectMember = typeof projectMembersTable.$inferSelect;
+export type ProjectInvite = typeof projectInvitesTable.$inferSelect;
