@@ -155,8 +155,9 @@ function CreateProjectDialog({ buttonVariant = "default" as any }) {
           form.reset();
           toast({ title: "Project created", description: "Your new project is ready." });
         },
-        onError: (err) => {
-          toast({ title: "Error", description: err.error || "Failed to create project", variant: "destructive" });
+        onError: (err: any) => {
+          const errorMessage = err?.response?.data?.error || err?.message || "Failed to create project";
+          toast({ title: "Error", description: errorMessage, variant: "destructive" });
         }
       }
     );

@@ -7,7 +7,8 @@ import {
   useUpdateTask,
   useUpdateProject,
   useDeleteProject,
-  getListProjectsQueryKey
+  getListProjectsQueryKey,
+  Task
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,6 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { Task } from "@workspace/api-client-react/src/generated/api.schemas";
 import { ProjectMembersSheet } from "@/components/project-members-sheet";
 import { TaskDetailSheet } from "@/components/task-detail-sheet";
 import { format } from "date-fns";

@@ -8,7 +8,8 @@ import {
   useListProjectMembers, 
   getGetTaskQueryKey, 
   getListTaskCommentsQueryKey, 
-  getListProjectTasksQueryKey 
+  getListProjectTasksQueryKey,
+  getListProjectMembersQueryKey 
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -46,7 +47,7 @@ export function TaskDetailSheet({
   });
   
   const { data: members } = useListProjectMembers(projectId, {
-    query: { enabled: open && !!projectId }
+    query: { enabled: open && !!projectId, queryKey: getListProjectMembersQueryKey(projectId) }
   });
 
   const updateTask = useUpdateTask();

@@ -66,8 +66,9 @@ export function ProjectMembersSheet({
           form.reset();
           toast({ title: "Member added" });
         },
-        onError: (err) => {
-          toast({ title: "Error", description: err.error || "Failed to add member", variant: "destructive" });
+        onError: (err: any) => {
+          const errorMessage = err?.response?.data?.error || err?.message || "Failed to add member";
+          toast({ title: "Error", description: errorMessage, variant: "destructive" });
         }
       }
     );
